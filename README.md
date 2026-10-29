@@ -48,3 +48,9 @@ OpenCode Go は外のクライアントに、自分の名前の User-Agent と�
 ## まだ決めていないこと
 
 - 認証（`HONCHO_AUTH_USE_AUTH`）。いまは false で、127.0.0.1 にしか開けていない。
+
+## 位置づけ（2026-10-29 決定）
+
+nilkani06 の記憶の本体は Hindsight のまま。Honcho のフックへの切り替えはしない。
+理由は、全文検索が `to_tsvector("english", …)`（`src/utils/search.py`）で日本語が単語に割れないこと、観察が英語で書かれること、チャンネル分離にあたる印の仕組みが無いこと。
+Honcho は立てたまま、Claude Code からは MCP（`@honcho-ai/claude-honcho` の mcp-server.js を bun の自動取得で起こす）で様子を見る。workspace は `nilkani06` と `zerozari00` を作ってある（中身は空）。
