@@ -1,0 +1,39 @@
+diff --git a/src/config.py b/src/config.py
+index 32b043c..9d28505 100644
+--- a/src/config.py
++++ b/src/config.py
+@@ -801,6 +801,12 @@ class LLMSettings(HonchoSettings):
+     OPENAI_BASE_URL: str | None = None
+     GEMINI_BASE_URL: str | None = None
+ 
++    # Extra HTTP headers sent on every OpenAI-transport client (JSON object in the
++    # env var, e.g. LLM_OPENAI_DEFAULT_HEADERS='{"User-Agent":"my-agent/1.0"}').
++    # Merged over the built-in per-base-URL defaults; per-module
++    # provider_params.extra_headers still wins on key collision.
++    OPENAI_DEFAULT_HEADERS: dict[str, str] = Field(default_factory=dict)
++
+     # General LLM settings
+     DEFAULT_MAX_TOKENS: Annotated[int, Field(default=1000, gt=0, le=100_000)] = 2500
+ 
+diff --git a/src/llm/registry.py b/src/llm/registry.py
+index 9b18bcb..a870c44 100644
+--- a/src/llm/registry.py
++++ b/src/llm/registry.py
+@@ -56,11 +56,14 @@ _DEFAULT_HEADERS_BY_BASE_URL: dict[str, dict[str, str]] = {
+ def _default_headers_for(base_url: str | None) -> dict[str, str]:
+     """Default headers for ``base_url`` (prefix match); these merge under any
+     per-request ``extra_headers`` passthrough, which wins on key collision."""
++    headers: dict[str, str] = {}
+     if base_url:
+-        for prefix, headers in _DEFAULT_HEADERS_BY_BASE_URL.items():
++        for prefix, prefix_headers in _DEFAULT_HEADERS_BY_BASE_URL.items():
+             if base_url.startswith(prefix):
+-                return headers
+-    return {}
++                headers.update(prefix_headers)
++                break
++    headers.update(settings.LLM.OPENAI_DEFAULT_HEADERS)
++    return headers
+ 
+ 
+ def _build_gemini_http_options(base_url: str | None) -> genai_types.HttpOptions:
