@@ -1,0 +1,128 @@
+# Honcho（plastic-labs/honcho、エージェント用の記憶サーバー）。下書き：まだ一度も起動していない。
+# 本家の docker-compose.yml.example から、同梱の database（pgvector）・redis・mcp を外し、
+# DB は postgresql-docker の共有 PostgreSQL（external network `postgresql`、ホスト名 `postgresql`）に繋ぐ。
+# イメージは ./honcho（git clone 済み。コミットは README に記録）から build する。
+# 本家リポジトリは改変しない（patches/0001 は当てない。ヘッダは本家の provider_params で付ける）。
+name: honcho
+
+x-honcho-env: &honcho-env
+  # 共有 PostgreSQL の中の honcho データベース（作成は README の手順。vector は事前に入れておく）
+  DB_CONNECTION_URI: postgresql+psycopg://${HONCHO_DB_USER:-honcho}:${HONCHO_DB_PASSWORD:?.env に HONCHO_DB_PASSWORD を書く}@postgresql:5432/${HONCHO_DB_NAME:-honcho}
+  # キャッシュ（redis）は使わない＝本家の既定どおり無効
+  CACHE_ENABLED: "false"
+  LOG_LEVEL: ${HONCHO_LOG_LEVEL:-INFO}
+  AUTH_USE_AUTH: ${HONCHO_AUTH_USE_AUTH:-false}
+  AUTH_JWT_SECRET: ${HONCHO_AUTH_JWT_SECRET:-}
+
+  # --- LLM：OpenCode Go に直結（LiteLLM は挟まない）。9 つのモジュールすべてに同じ設定を置く ---
+  # 鍵は OPENCODE_API_KEY の 1 つだけ。各モジュールの API_KEY_ENV でその名前を指す
+  # （LLM_OPENAI_API_KEY は使わない）。ベース URL は SDK が /chat/completions を足す手前まで。
+  # User-Agent と x-opencode-session（OpenCode Go が外のクライアントに求める）は、本家の
+  # ModelOverrideSettings.provider_params.extra_headers で各モジュールに付ける（src/config.py。パッチ不要）。
+  OPENCODE_API_KEY: ${OPENCODE_API_KEY:?.env に OPENCODE_API_KEY を書く}
+
+  DERIVER_MODEL_CONFIG__TRANSPORT: openai
+  DERIVER_MODEL_CONFIG__MODEL: &llm-model ${HONCHO_LLM_MODEL:-deepseek-v4.1-flash}
+  DERIVER_MODEL_CONFIG__OVERRIDES__BASE_URL: &llm-url ${HONCHO_LLM_BASE_URL:-https://opencode.ai/inference/go/openai/v1}
+  DERIVER_MODEL_CONFIG__OVERRIDES__API_KEY_ENV: OPENCODE_API_KEY
+  DERIVER_MODEL_CONFIG__OVERRIDES__PROVIDER_PARAMS: &llm-params ${HONCHO_LLM_PROVIDER_PARAMS:-{"extra_headers":{"User-Agent":"honcho-nilkani06/1.0","x-opencode-session":"honcho-nilkani06"}}}
+  SUMMARY_MODEL_CONFIG__TRANSPORT: openai
+  SUMMARY_MODEL_CONFIG__MODEL: *llm-model
+  SUMMARY_MODEL_CONFIG__OVERRIDES__BASE_URL: *llm-url
+  SUMMARY_MODEL_CONFIG__OVERRIDES__API_KEY_ENV: OPENCODE_API_KEY
+  SUMMARY_MODEL_CONFIG__OVERRIDES__PROVIDER_PARAMS: *llm-params
+  DREAM_DEDUCTION_MODEL_CONFIG__TRANSPORT: openai
+  DREAM_DEDUCTION_MODEL_CONFIG__MODEL: *llm-model
+  DREAM_DEDUCTION_MODEL_CONFIG__OVERRIDES__BASE_URL: *llm-url
+  DREAM_DEDUCTION_MODEL_CONFIG__OVERRIDES__API_KEY_ENV: OPENCODE_API_KEY
+  DREAM_DEDUCTION_MODEL_CONFIG__OVERRIDES__PROVIDER_PARAMS: *llm-params
+  DREAM_INDUCTION_MODEL_CONFIG__TRANSPORT: openai
+  DREAM_INDUCTION_MODEL_CONFIG__MODEL: *llm-model
+  DREAM_INDUCTION_MODEL_CONFIG__OVERRIDES__BASE_URL: *llm-url
+  DREAM_INDUCTION_MODEL_CONFIG__OVERRIDES__API_KEY_ENV: OPENCODE_API_KEY
+  DREAM_INDUCTION_MODEL_CONFIG__OVERRIDES__PROVIDER_PARAMS: *llm-params
+  DIALECTIC_LEVELS__minimal__MODEL_CONFIG__TRANSPORT: openai
+  DIALECTIC_LEVELS__minimal__MODEL_CONFIG__MODEL: *llm-model
+  DIALECTIC_LEVELS__minimal__MODEL_CONFIG__OVERRIDES__BASE_URL: *llm-url
+  DIALECTIC_LEVELS__minimal__MODEL_CONFIG__OVERRIDES__API_KEY_ENV: OPENCODE_API_KEY
+  DIALECTIC_LEVELS__minimal__MODEL_CONFIG__OVERRIDES__PROVIDER_PARAMS: *llm-params
+  DIALECTIC_LEVELS__low__MODEL_CONFIG__TRANSPORT: openai
+  DIALECTIC_LEVELS__low__MODEL_CONFIG__MODEL: *llm-model
+  DIALECTIC_LEVELS__low__MODEL_CONFIG__OVERRIDES__BASE_URL: *llm-url
+  DIALECTIC_LEVELS__low__MODEL_CONFIG__OVERRIDES__API_KEY_ENV: OPENCODE_API_KEY
+  DIALECTIC_LEVELS__low__MODEL_CONFIG__OVERRIDES__PROVIDER_PARAMS: *llm-params
+  DIALECTIC_LEVELS__medium__MODEL_CONFIG__TRANSPORT: openai
+  DIALECTIC_LEVELS__medium__MODEL_CONFIG__MODEL: *llm-model
+  DIALECTIC_LEVELS__medium__MODEL_CONFIG__OVERRIDES__BASE_URL: *llm-url
+  DIALECTIC_LEVELS__medium__MODEL_CONFIG__OVERRIDES__API_KEY_ENV: OPENCODE_API_KEY
+  DIALECTIC_LEVELS__medium__MODEL_CONFIG__OVERRIDES__PROVIDER_PARAMS: *llm-params
+  DIALECTIC_LEVELS__high__MODEL_CONFIG__TRANSPORT: openai
+  DIALECTIC_LEVELS__high__MODEL_CONFIG__MODEL: *llm-model
+  DIALECTIC_LEVELS__high__MODEL_CONFIG__OVERRIDES__BASE_URL: *llm-url
+  DIALECTIC_LEVELS__high__MODEL_CONFIG__OVERRIDES__API_KEY_ENV: OPENCODE_API_KEY
+  DIALECTIC_LEVELS__high__MODEL_CONFIG__OVERRIDES__PROVIDER_PARAMS: *llm-params
+  DIALECTIC_LEVELS__max__MODEL_CONFIG__TRANSPORT: openai
+  DIALECTIC_LEVELS__max__MODEL_CONFIG__MODEL: *llm-model
+  DIALECTIC_LEVELS__max__MODEL_CONFIG__OVERRIDES__BASE_URL: *llm-url
+  DIALECTIC_LEVELS__max__MODEL_CONFIG__OVERRIDES__API_KEY_ENV: OPENCODE_API_KEY
+  DIALECTIC_LEVELS__max__MODEL_CONFIG__OVERRIDES__PROVIDER_PARAMS: *llm-params
+
+  # --- 埋め込み：OpenAI 互換の口が必須（コンテナ内で完結する選択肢は Honcho に無い）。人間の判断待ち ---
+  # 既定の次元は 1536。モデルの次元に合わせて VECTOR_DIMENSIONS を決める。DB 作成後に変えると列の型が変わる（README）。
+  # transport=openai は API キーが空だと起動を拒む。ollama など鍵を見ない口なら埋め草でよい。
+  EMBEDDING_MODEL_CONFIG__TRANSPORT: openai
+  EMBEDDING_MODEL_CONFIG__MODEL: ${HONCHO_EMBEDDING_MODEL:?.env に HONCHO_EMBEDDING_MODEL を書く（README の「人間の判断」）}
+  EMBEDDING_MODEL_CONFIG__OVERRIDES__BASE_URL: ${HONCHO_EMBEDDING_BASE_URL:?.env に HONCHO_EMBEDDING_BASE_URL を書く}
+  EMBEDDING_MODEL_CONFIG__OVERRIDES__API_KEY: ${HONCHO_EMBEDDING_API_KEY:-none}
+  EMBEDDING_VECTOR_DIMENSIONS: ${HONCHO_EMBEDDING_DIMENSIONS:-1536}
+  EMBEDDING_MODEL_CONFIG__MAX_BATCH_SIZE: ${HONCHO_EMBEDDING_BATCH_SIZE:-16}
+
+services:
+  # API サーバー。起動時に docker/entrypoint.sh が scripts/provision_db.py（alembic のマイグレーション）を走らせてから fastapi を起こす
+  api:
+    build:
+      context: ./honcho
+      dockerfile: Dockerfile
+    image: honcho-local:${HONCHO_IMAGE_TAG:-dev}
+    container_name: honcho-api
+    restart: unless-stopped
+    entrypoint: ["sh", "docker/entrypoint.sh"]
+    ports:
+      - "127.0.0.1:18000:8000"  # ホスト側は 18000（Hindsight の 18888 と衝突しない）
+    environment:
+      <<: *honcho-env
+    healthcheck:
+      test: ["CMD", "/app/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=2).read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    networks:
+      - postgresql
+      - ollama
+      - default
+    mem_limit: 1g
+
+  # deriver＝バックグラウンドの記憶抽出ワーカー（メッセージ→観察の生成）。マイグレーション済みの api を待つ
+  deriver:
+    image: honcho-local:${HONCHO_IMAGE_TAG:-dev}
+    container_name: honcho-deriver
+    restart: unless-stopped
+    entrypoint: ["/app/.venv/bin/python", "-m", "src.deriver"]
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      <<: *honcho-env
+    networks:
+      - postgresql
+      - ollama
+      - default
+    mem_limit: 1g
+
+networks:
+  postgresql:
+    external: true
+  # 埋め込み（bge-m3）は ollama-docker の共有 ollama（ホスト名 `ollama`）
+  ollama:
+    external: true
