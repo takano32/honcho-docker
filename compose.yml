@@ -76,6 +76,9 @@ x-honcho-env: &honcho-env
   EMBEDDING_MODEL_CONFIG__OVERRIDES__API_KEY: ${HONCHO_EMBEDDING_API_KEY:-none}
   EMBEDDING_VECTOR_DIMENSIONS: ${HONCHO_EMBEDDING_DIMENSIONS:-1536}
   EMBEDDING_MODEL_CONFIG__MAX_BATCH_SIZE: ${HONCHO_EMBEDDING_BATCH_SIZE:-16}
+  # 1つの入力の上限（Honcho は tiktoken で数えて切ってから送る。本家の既定 8192）。llama-embed（bge-m3）は 8192 トークンを超えると
+  # HTTP 500 を返し、切り詰めない。tiktoken と bge-m3 のトークナイザーでは数が違うので、余裕を見て 7000 に下げる
+  EMBEDDING_MAX_INPUT_TOKENS: ${HONCHO_EMBEDDING_MAX_INPUT_TOKENS:-7000}
 
 services:
   # API サーバー。起動時に docker/entrypoint.sh が scripts/provision_db.py（alembic のマイグレーション）を走らせてから fastapi を起こす
@@ -99,7 +102,7 @@ services:
       start_period: 60s
     networks:
       - postgresql
-      - ollama
+      - llama
       - default
     mem_limit: 1g
 
@@ -116,13 +119,13 @@ services:
       <<: *honcho-env
     networks:
       - postgresql
-      - ollama
+      - llama
       - default
     mem_limit: 1g
 
 networks:
   postgresql:
     external: true
-  # 埋め込み（bge-m3）は ollama-docker の共有 ollama（ホスト名 `ollama`）
-  ollama:
+  # 埋め込み（bge-m3）は llama-docker の共有埋め込みサーバー（ホスト名 `llama-embed`）。2026-10-30 に ollama-docker の ollama から切り替えた
+  llama:
     external: true
