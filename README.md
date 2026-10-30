@@ -5,7 +5,10 @@
 - 本家は `./honcho` に clone して build する（このリポには含めない＝`.gitignore`）。いま使っているコミットは `96806bc29236331ed3f1749589b7b1442c2325e5`（2026-10-28）。ライセンスは AGPL-3.0。本家は改変しない。
 - コンテナは `api`（起動時に alembic のマイグレーションを流してから fastapi。ホスト側は 127.0.0.1:18000 だけ）と `deriver`（メッセージから観察を抜き出すワーカー）の2つ。本家例の redis（キャッシュ、既定で無効）と mcp は入れていない。
 - DB は [postgresql-docker](https://github.com/takano32/postgresql-docker) の共有 PostgreSQL（external network `postgresql`）の `honcho` データベース。
-- 埋め込みは [ollama-docker](https://github.com/takano32/ollama-docker) の共有 ollama（external network `ollama`）の `bge-m3`（1024次元）。Honcho には埋め込みをコンテナ内で回す選択肢が無く、OpenAI 互換の口が要る。
+- 埋め込みは [llama-docker](https://github.com/takano32/llama-docker) の共有埋め込みサーバー（external network `llama`、`http://llama-embed:8080/v1`）の `bge-m3`（1024次元）。Honcho には埋め込みをコンテナ内で回す選択肢が無く、OpenAI 互換の口が要る。
+  2026-10-30 に [ollama-docker](https://github.com/takano32/ollama-docker) の共有 ollama（network `ollama`）から切り替えた（同じ重みで、ベクトルは一致を確認済み。次元も同じなので configure_embeddings は流し直していない）。
+  llama-embed は 8192 トークンを超える入力を切り詰めずに HTTP 500 で返す。Honcho は tiktoken で数えて切ってから送るが、bge-m3 のトークナイザーとは数が違うので、
+  1入力の上限 `EMBEDDING_MAX_INPUT_TOKENS` を本家の既定 8192 から 7000 に下げている（compose、`.env` の `HONCHO_EMBEDDING_MAX_INPUT_TOKENS` で変えられる）。
 - LLM は OpenCode Go の `deepseek-v4.1-flash` に直結（LiteLLM などの中継は挟まない）。9つのモジュール（deriver、summary、dream の2、dialectic の5段）すべてに同じ設定を置く。
 
 ## OpenCode Go のヘッダ
